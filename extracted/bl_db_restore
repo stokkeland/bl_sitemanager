@@ -1,0 +1,43 @@
+#!/bin/bash
+# bl_db_restore - Restore site data from backup
+
+source "$(dirname "$0")/bl_common.sh"
+
+usage() {
+    echo "Usage: $0 <backup_name>"
+    echo "Available backups:"
+    ls -1 "${BL_DATA_FILE}.backup."* 2>/dev/null | sed 's/.*\.backup\./  /'
+    exit 1
+}
+
+main() {
+    check_user
+    
+    if [[ $# -ne 1 ]]; then
+        usage
+    fi
+    
+    local backup_name="$1"
+    local backup_file="${BL_DATA_FILE}.backup.${backup_name}"
+    
+    if [[ ! -f "$backup_file" ]]; then
+        error_msg "Backup file not found: $backup_file"
+        usage
+    fi
+    
+    # Create current backup before restore
+    if [[ -f "$BL_DATA_FILE" ]]; then
+        local current_backup="${BL_DATA_FILE}.backup.pre_restore_$(date '+%Y%m%d_%H%M%S')"
+        cp "$BL_DATA_FILE" "$current_backup"
+        info_msg "Current data backed up to: $current_backup"
+    fi
+    
+    # Restore
+    cp "$backup_file" "$BL_DATA_FILE"
+    success_msg "Data restored from: $backup_file"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
+

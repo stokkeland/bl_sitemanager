@@ -1,0 +1,65 @@
+#!/bin/bash
+# bl_site_quicklist - Simplified site list (short_name, type, fs_base_path, notes)
+
+source "$(dirname "$0")/bl_common.sh"
+
+usage() {
+    echo "Usage: $0 [--format table|csv]"
+    exit 1
+}
+
+print_header() {
+    printf "%-15s %-8s %-40s %-30s\n" \
+        "SHORT_NAME" "TYPE" "FS_BASE_PATH" "NOTES"
+    printf "%s\n" "$(printf '=%.0s' {1..100})"
+}
+
+print_site() {
+    local data="$1"
+    IFS='|' read -r name type status fs_base url_base notes created updated inactivated <<< "$data"
+    printf "%-15s %-8s %-40s %-30s\n" \
+        "$name" "$type" "$fs_base" "$notes"
+}
+
+main() {
+    check_user
+    init_data_file
+
+    local output_format="table"
+
+    if [[ $# -gt 0 ]]; then
+        if [[ "$1" == "--format" ]] && [[ -n "$2" ]]; then
+            output_format="$2"
+        else
+            usage
+        fi
+    fi
+
+    local data_lines
+    data_lines=$(get_active_sites)
+
+    case "$output_format" in
+        table)
+            print_header
+            while IFS= read -r line; do
+                [[ -n "$line" ]] && print_site "$line"
+            done <<< "$data_lines"
+            ;;
+        csv)
+            echo "short_name,type,fs_base_path,notes"
+            while IFS= read -r line; do
+                IFS='|' read -r name type status fs_base url_base notes _ <<< "$line"
+                echo "\"$name\",\"$type\",\"$fs_base\",\"$notes\""
+            done <<< "$data_lines"
+            ;;
+        *)
+            error_msg "Unsupported format: $output_format"
+            usage
+            ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
+

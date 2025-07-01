@@ -1,0 +1,60 @@
+#!/bin/bash
+# bl_config_set - Set configuration values in site config files
+
+source "$(dirname "$0")/bl_common.sh"
+
+usage() {
+    echo "Usage: $0 <site_name> <config_key> <value>"
+    echo "Example: $0 mysite SITE.staff_open 1"
+    echo "Example: $0 mysite SITE.limit_src_ip '[\"1.1.1.1\",\"2.2.2.2\"]'"
+    exit 1
+}
+
+main() {
+    check_user
+    init_data_file
+    
+    if [[ $# -ne 3 ]]; then
+        usage
+    fi
+    
+    local site_name="$1"
+    local config_key="$2"
+    local value="$3"
+    
+    if ! site_exists "$site_name"; then
+        error_msg "Site '$site_name' does not exist"
+        exit 1
+    fi
+    
+    local fs_base=$(get_site_fs_base "$site_name")
+    local config_file="$fs_base$BL_CONFIG_FILE_PATH"
+    
+    if [[ ! -f "$config_file" ]]; then
+        error_msg "Config file not found: $config_file"
+        exit 1
+    fi
+    
+    # Use the edit_php_config function
+    if edit_php_config "$config_file" "$config_key" "$value"; then
+        success_msg "Configuration updated: $config_key = $value"
+    else
+        error_msg "Failed to update configuration"
+        exit 1
+    fi
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
+
+echo "Usage Examples:"
+echo "  bl_db_add mysite prod ok /var/www/mysite https://mysite.com"
+echo "  bl_site_list --type prod --status ok"
+echo "  bl_git_pull --all"
+echo "  bl_git_checkout develop --all"
+echo "  bl_git_branch_cleanup --all --delete-branches"
+echo "  bl_disable_site mysite"
+echo "  bl_health_check --verbose --fix"
+
+

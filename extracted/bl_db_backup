@@ -1,0 +1,42 @@
+#!/bin/bash
+# bl_db_backup - Create backup of site data file
+
+source "$(dirname "$0")/bl_common.sh"
+
+usage() {
+    echo "Usage: $0 [backup_name]"
+    echo "If no backup_name provided, uses timestamp"
+    exit 1
+}
+
+main() {
+    check_user
+    init_data_file
+    
+    local backup_name=""
+    if [[ $# -eq 1 ]]; then
+        backup_name="$1"
+    else
+        backup_name="auto_$(date '+%Y%m%d_%H%M%S')"
+    fi
+    
+    local backup_file="${BL_DATA_FILE}.backup.${backup_name}"
+    
+    if [[ -f "$backup_file" ]]; then
+        error_msg "Backup file already exists: $backup_file"
+        exit 1
+    fi
+    
+    cp "$BL_DATA_FILE" "$backup_file"
+    success_msg "Backup created: $backup_file"
+    
+    # List all backups
+    echo
+    info_msg "Available backups:"
+    ls -la "${BL_DATA_FILE}.backup."* 2>/dev/null | awk '{print $9, $5, $6, $7, $8}' | column -t
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
+

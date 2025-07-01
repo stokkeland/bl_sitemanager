@@ -1,0 +1,84 @@
+#!/bin/bash
+# bl_git_pull - Run git pull on site(s)
+
+source "$(dirname "$0")/bl_common.sh"
+
+usage() {
+    echo "Usage: $0 [site_name|--all] [--force]"
+    echo "  site_name - Pull specific site"
+    echo "  --all     - Pull all sites"
+    echo "  --force   - Force pull even if working directory is dirty"
+    exit 1
+}
+
+check_git_pull() {
+    local site_name="$1"
+    local fs_base="$2"
+    local force="$3"
+    
+    info_msg "=== Git Pull for $site_name ==="
+    
+    if [[ ! -d "$fs_base" ]]; then
+        error_msg "Directory does not exist: $fs_base"
+        return 1
+    fi
+    
+    if [[ ! -d "$fs_base/.git" ]]; then
+        warning_msg "Not a git repository: $fs_base"
+        return 1
+    fi
+    
+    cd "$fs_base" || return 1
+    
+    # Check if working directory is clean
+    if [[ "$force" != "true" ]] && ! git diff-index --quiet HEAD --; then
+        warning_msg "Working directory is dirty for $site_name. Use --force to pull anyway."
+        return 1
+    fi
+    
+    git pull
+    echo
+}
+
+main() {
+    check_user
+    init_data_file
+    
+    if [[ $# -lt 1 ]]; then
+        usage
+    fi
+    
+    local target="$1"
+    local force="false"
+    
+    if [[ "$2" == "--force" ]] || [[ "$1" == "--force" && "$2" != "" ]]; then
+        force="true"
+        if [[ "$1" == "--force" ]]; then
+            target="$2"
+        fi
+    fi
+    
+    if [[ "$target" == "--all" ]]; then
+        # Process all active sites
+        get_active_sites | while IFS='|' read -r name type status fs_base url_base notes created updated inactivated; do
+            if [[ -n "$name" ]]; then
+                check_git_pull "$name" "$fs_base" "$force"
+            fi
+        done
+    else
+        # Process specific site
+        local site_name="$target"
+        if ! site_exists "$site_name"; then
+            error_msg "Site '$site_name' does not exist"
+            exit 1
+        fi
+        
+        local fs_base=$(get_site_fs_base "$site_name")
+        check_git_pull "$site_name" "$fs_base" "$force"
+    fi
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
+

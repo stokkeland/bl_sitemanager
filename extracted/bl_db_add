@@ -1,0 +1,53 @@
+#!/bin/bash
+# bl_db_add - Add a new site entry
+
+source "$(dirname "$0")/bl_common.sh"
+
+usage() {
+    echo "Usage: $0 <short_name> <type> <status> <fs_base_path> <url_base> [notes]"
+    echo "Types: ${VALID_TYPES[*]}"
+    echo "Statuses: ${VALID_STATUSES[*]}"
+    exit 1
+}
+
+main() {
+    check_user
+    init_data_file
+    
+    if [[ $# -lt 5 ]]; then
+        usage
+    fi
+    
+    local short_name="$1"
+    local type="$2"
+    local status="$3"
+    local fs_base_path="$4"
+    local url_base="$5"
+    local notes="${6:-}"
+    local timestamp=$(get_timestamp)
+    
+    # Validate inputs
+    if ! validate_type "$type"; then
+        error_msg "Invalid type: $type. Valid types: ${VALID_TYPES[*]}"
+        exit 1
+    fi
+    
+    if ! validate_status "$status"; then
+        error_msg "Invalid status: $status. Valid statuses: ${VALID_STATUSES[*]}"
+        exit 1
+    fi
+    
+    if site_exists "$short_name"; then
+        error_msg "Site '$short_name' already exists"
+        exit 1
+    fi
+    
+    # Add new site (with empty inactivated field)
+    echo "${short_name}|${type}|${status}|${fs_base_path}|${url_base}|${notes}|${timestamp}|${timestamp}|" >> "$BL_DATA_FILE"
+    success_msg "Site '$short_name' added successfully"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
+

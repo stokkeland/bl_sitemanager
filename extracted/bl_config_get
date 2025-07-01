@@ -1,0 +1,76 @@
+#!/bin/bash
+# bl_config_get - Get configuration values from site config files
+
+source "$(dirname "$0")/bl_common.sh"
+
+usage() {
+    echo "Usage: $0 <site_name> <config_key>"
+    echo "Example: $0 mysite SITE.staff_open"
+    exit 1
+}
+
+main() {
+    check_user
+    init_data_file
+    
+    if [[ $# -ne 2 ]]; then
+        usage
+    fi
+    
+    local site_name="$1"
+    local config_key="$2"
+    
+    if ! site_exists "$site_name"; then
+        error_msg "Site '$site_name' does not exist"
+        exit 1
+    fi
+    
+    local fs_base=$(get_site_fs_base "$site_name")
+    local config_file="$fs_base$BL_CONFIG_FILE_PATH"
+    
+    if [[ ! -f "$config_file" ]]; then
+        error_msg "Config file not found: $config_file"
+        exit 1
+    fi
+    
+    # Convert dot notation to PHP array access
+    local php_key=$(echo "$config_key" | sed "s/\./', '/g")
+    
+    # Get the value using PHP
+    local value=$(php << EOF
+<?php
+\$config_file = '$config_file';
+include \$config_file;
+
+\$keys = ['$php_key'];
+\$current = \$BS_CONF;
+
+foreach (\$keys as \$key) {
+    if (isset(\$current[\$key])) {
+        \$current = \$current[\$key];
+    } else {
+        echo "KEY_NOT_FOUND";
+        exit(1);
+    }
+}
+
+if (is_array(\$current)) {
+    echo json_encode(\$current);
+} else {
+    echo \$current;
+}
+EOF
+)
+    
+    if [[ "$value" == "KEY_NOT_FOUND" ]]; then
+        error_msg "Configuration key '$config_key' not found"
+        exit 1
+    fi
+    
+    echo "$value"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
+

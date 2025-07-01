@@ -1,0 +1,109 @@
+#!/bin/bash
+# bl_git_branch_cleanup - Clean up local branches with deleted remote tracking
+
+source "$(dirname "$0")/bl_common.sh"
+
+usage() {
+    echo "Usage: $0 [site_name|--all] [--delete-branches]"
+    echo "  site_name        - Check/clean branches on specific site"
+    echo "  --all            - Check/clean branches on all sites"
+    echo "  --delete-branches - Actually delete the branches (default: just list)"
+    echo ""
+    echo "Lists or deletes local branches whose remote tracking branch is gone"
+    exit 1
+}
+
+check_git_branch_cleanup() {
+    local site_name="$1"
+    local fs_base="$2"
+    local delete_branches="$3"
+    
+    info_msg "=== Git Branch Cleanup for $site_name ==="
+    
+    if [[ ! -d "$fs_base" ]]; then
+        error_msg "Directory does not exist: $fs_base"
+        return 1
+    fi
+    
+    if [[ ! -d "$fs_base/.git" ]]; then
+        warning_msg "Not a git repository: $fs_base"
+        return 1
+    fi
+    
+    cd "$fs_base" || return 1
+    
+    # First, fetch with prune to ensure tracking info is up to date
+    echo "Updating remote tracking information..."
+    git fetch -p
+    
+    # Find branches with gone remote tracking
+    local gone_branches
+    gone_branches=$(git branch -vv | grep "\[gone\]" | awk '{print $1}')
+    
+    if [[ -z "$gone_branches" ]]; then
+        echo "No branches with deleted remote tracking found."
+    else
+        if [[ "$delete_branches" == "true" ]]; then
+            echo "Deleting branches with gone remote tracking:"
+            echo "$gone_branches" | while read -r branch; do
+                echo "  Deleting branch: $branch"
+                git branch -D "$branch"
+            done
+        else
+            echo "Found branches with deleted remote tracking:"
+            echo "$gone_branches" | while read -r branch; do
+                echo "  $branch"
+            done
+            echo ""
+            echo "Run with --delete-branches to remove these branches"
+        fi
+    fi
+    echo
+}
+
+main() {
+    check_user
+    init_data_file
+    
+    if [[ $# -lt 1 ]] || [[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]; then
+        usage
+    fi
+    
+    local target="$1"
+    local delete_branches="false"
+    
+    # Check for --delete-branches flag
+    if [[ "$2" == "--delete-branches" ]] || [[ "$1" == "--delete-branches" ]]; then
+        delete_branches="true"
+        if [[ "$1" == "--delete-branches" ]]; then
+            target="$2"
+            if [[ -z "$target" ]]; then
+                usage
+            fi
+        fi
+    fi
+    
+    if [[ "$target" == "--all" ]]; then
+        # Process all active sites
+        get_active_sites | while IFS='|' read -r name type status fs_base url_base notes created updated inactivated; do
+            if [[ -n "$name" ]]; then
+                check_git_branch_cleanup "$name" "$fs_base" "$delete_branches"
+            fi
+        done
+    else
+        # Process specific site
+        local site_name="$target"
+        if ! site_exists "$site_name"; then
+            error_msg "Site '$site_name' does not exist"
+            exit 1
+        fi
+        
+        local fs_base=$(get_site_fs_base "$site_name")
+        check_git_branch_cleanup "$site_name" "$fs_base" "$delete_branches"
+    fi
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
+

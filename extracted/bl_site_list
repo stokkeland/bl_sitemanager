@@ -1,0 +1,130 @@
+#!/bin/bash
+# bl_site_list - List and search sites
+
+source "$(dirname "$0")/bl_common.sh"
+
+usage() {
+    echo "Usage: $0 [options]"
+    echo "Options:"
+    echo "  --type <type>     Filter by type"
+    echo "  --status <status> Filter by status"
+    echo "  --search <term>   Search in all fields"
+    echo "  --sort <field>    Sort by field (1-8)"
+    echo "  --format <fmt>    Output format: table, csv, json"
+    exit 1
+}
+
+print_header() {
+    printf "%-15s %-8s %-10s %-30s %-30s %-20s %-20s %-20s\n" \
+        "SHORT_NAME" "TYPE" "STATUS" "FS_BASE_PATH" "URL_BASE" "NOTES" "CREATED" "UPDATED"
+    printf "%s\n" "$(printf '=%.0s' {1..150})"
+}
+
+print_site() {
+    local data="$1"
+    IFS='|' read -r name type status fs_base url_base notes created updated inactivated <<< "$data"
+    printf "%-15s %-8s %-10s %-30s %-30s %-20s %-20s %-20s\n" \
+        "$name" "$type" "$status" "$fs_base" "$url_base" "$notes" "$created" "$updated"
+}
+
+main() {
+    check_user
+    init_data_file
+    
+    local filter_type=""
+    local filter_status=""
+    local search_term=""
+    local sort_field=""
+    local output_format="table"
+    
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --type)
+                filter_type="$2"
+                shift 2
+                ;;
+            --status)
+                filter_status="$2"
+                shift 2
+                ;;
+            --search)
+                search_term="$2"
+                shift 2
+                ;;
+            --sort)
+                sort_field="$2"
+                shift 2
+                ;;
+            --format)
+                output_format="$2"
+                shift 2
+                ;;
+            *)
+                usage
+                ;;
+        esac
+    done
+    
+    # Get active sites data
+    local data_lines=$(get_active_sites)
+    
+    # Apply filters
+    if [[ -n "$filter_type" ]]; then
+        data_lines=$(echo "$data_lines" | awk -F'|' -v type="$filter_type" '$2 == type')
+    fi
+    
+    if [[ -n "$filter_status" ]]; then
+        data_lines=$(echo "$data_lines" | awk -F'|' -v status="$filter_status" '$3 == status')
+    fi
+    
+    if [[ -n "$search_term" ]]; then
+        data_lines=$(echo "$data_lines" | grep -i "$search_term")
+    fi
+    
+    # Apply sorting
+    if [[ -n "$sort_field" ]]; then
+        data_lines=$(echo "$data_lines" | sort -t'|' -k"$sort_field")
+    fi
+    
+    # Output
+    case "$output_format" in
+        table)
+            print_header
+            while IFS= read -r line; do
+                [[ -n "$line" ]] && print_site "$line"
+            done <<< "$data_lines"
+            ;;
+        csv)
+            echo "$BL_DATA_HEADER"
+            echo "$data_lines"
+            ;;
+        json)
+            echo "["
+            local first=true
+            while IFS= read -r line; do
+                if [[ -n "$line" ]]; then
+                    [[ "$first" == false ]] && echo ","
+                    IFS='|' read -r name type status fs_base url_base notes created updated inactivated <<< "$line"
+                    echo "  {"
+                    echo "    \"short_name\": \"$name\","
+                    echo "    \"type\": \"$type\","
+                    echo "    \"status\": \"$status\","
+                    echo "    \"fs_base_path\": \"$fs_base\","
+                    echo "    \"url_base\": \"$url_base\","
+                    echo "    \"notes\": \"$notes\","
+                    echo "    \"created\": \"$created\","
+                    echo "    \"last_updated\": \"$updated\""
+                    echo -n "  }"
+                    first=false
+                fi
+            done <<< "$data_lines"
+            echo
+            echo "]"
+            ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
+

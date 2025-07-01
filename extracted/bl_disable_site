@@ -1,0 +1,60 @@
+#!/bin/bash
+# bl_disable_site - Disable site by setting staff_open and client_open to 0
+
+source "$(dirname "$0")/bl_common.sh"
+
+usage() {
+    echo "Usage: $0 [site_name|--all]"
+    exit 1
+}
+
+disable_site() {
+    local site_name="$1"
+    local fs_base="$2"
+    local config_file="$fs_base$BL_CONFIG_FILE_PATH"
+    
+    info_msg "=== Disabling site: $site_name ==="
+    
+    if [[ ! -f "$config_file" ]]; then
+        error_msg "Config file not found: $config_file"
+        return 1
+    fi
+    
+    edit_php_config "$config_file" "SITE.staff_open" "0"
+    edit_php_config "$config_file" "SITE.client_open" "0"
+    
+    success_msg "Site $site_name disabled"
+}
+
+main() {
+    check_user
+    init_data_file
+    
+    if [[ $# -ne 1 ]]; then
+        usage
+    fi
+    
+    if [[ "$1" == "--all" ]]; then
+        # Process all active sites
+        get_active_sites | while IFS='|' read -r name type status fs_base url_base notes created updated inactivated; do
+            if [[ -n "$name" ]]; then
+                disable_site "$name" "$fs_base"
+            fi
+        done
+    else
+        # Process specific site
+        local site_name="$1"
+        if ! site_exists "$site_name"; then
+            error_msg "Site '$site_name' does not exist"
+            exit 1
+        fi
+        
+        local fs_base=$(get_site_fs_base "$site_name")
+        disable_site "$site_name" "$fs_base"
+    fi
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
+

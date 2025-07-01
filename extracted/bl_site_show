@@ -1,0 +1,76 @@
+#!/bin/bash
+# bl_site_show - Show detailed information for a specific site
+
+source "$(dirname "$0")/bl_common.sh"
+
+usage() {
+    echo "Usage: $0 <site_name>"
+    exit 1
+}
+
+main() {
+    check_user
+    init_data_file
+    
+    if [[ $# -ne 1 ]]; then
+        usage
+    fi
+    
+    local site_name="$1"
+    
+    if ! site_exists "$site_name"; then
+        error_msg "Site '$site_name' does not exist"
+        exit 1
+    fi
+    
+    local site_data=$(get_site_data "$site_name")
+    IFS='|' read -r name type status fs_base url_base notes created updated inactivated <<< "$site_data"
+    
+    echo -e "${CYAN}=== Site Details: $name ===${NC}"
+    echo "Short Name:     $name"
+    echo "Type:           $type"
+    echo "Status:         $status"
+    echo "FS Base Path:   $fs_base"
+    echo "URL Base:       $url_base"
+    echo "Notes:          $notes"
+    echo "Created:        $created"
+    echo "Last Updated:   $updated"
+    echo
+    
+    # Check if directory exists
+    if [[ -d "$fs_base" ]]; then
+        echo -e "${GREEN}✓ Directory exists${NC}"
+        
+        # Check if it's a git repo
+        if [[ -d "$fs_base/.git" ]]; then
+            echo -e "${GREEN}✓ Git repository${NC}"
+            cd "$fs_base"
+            echo "Git branch:     $(git branch --show-current 2>/dev/null || echo 'Unknown')"
+            echo "Last commit:    $(git log -1 --format='%h - %s (%cr)' 2>/dev/null || echo 'No commits')"
+        else
+            echo -e "${YELLOW}⚠ Not a git repository${NC}"
+        fi
+        
+        # Check config file
+        local config_file="$fs_base$BL_CONFIG_FILE_PATH"
+        if [[ -f "$config_file" ]]; then
+            echo -e "${GREEN}✓ Config file exists${NC}"
+            
+            # Try to extract current settings
+            local staff_open=$(php -r "include '$config_file'; echo isset(\$BS_CONF['SITE']['staff_open']) ? \$BS_CONF['SITE']['staff_open'] : 'N/A';" 2>/dev/null || echo "Error reading")
+            local client_open=$(php -r "include '$config_file'; echo isset(\$BS_CONF['SITE']['client_open']) ? \$BS_CONF['SITE']['client_open'] : 'N/A';" 2>/dev/null || echo "Error reading")
+            
+            echo "Staff Access:   $staff_open"
+            echo "Client Access:  $client_open"
+        else
+            echo -e "${YELLOW}⚠ Config file missing${NC}"
+        fi
+    else
+        echo -e "${RED}✗ Directory does not exist${NC}"
+    fi
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
+

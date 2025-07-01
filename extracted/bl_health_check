@@ -1,0 +1,149 @@
+#!/bin/bash
+# bl_health_check - Comprehensive health check for all sites
+
+source "$(dirname "$0")/bl_common.sh"
+
+usage() {
+    echo "Usage: $0 [--verbose] [--fix]"
+    echo "  --verbose  Show detailed output"
+    echo "  --fix      Attempt to fix common issues"
+    exit 1
+}
+
+check_site_health() {
+    local site_name="$1"
+    local fs_base="$2"
+    local url_base="$3"
+    local verbose="$4"
+    local fix="$5"
+    local issues=0
+    
+    if [[ "$verbose" == "true" ]]; then
+        info_msg "=== Health Check: $site_name ==="
+    fi
+    
+    # Check directory exists
+    if [[ ! -d "$fs_base" ]]; then
+        echo -e "${RED}✗ $site_name: Directory missing: $fs_base${NC}"
+        ((issues++))
+        if [[ "$fix" == "true" ]]; then
+            warning_msg "  Cannot auto-fix missing directory"
+        fi
+    else
+        if [[ "$verbose" == "true" ]]; then
+            echo -e "${GREEN}✓ $site_name: Directory exists${NC}"
+        fi
+        
+        # Check git repository
+        if [[ ! -d "$fs_base/.git" ]]; then
+            echo -e "${YELLOW}⚠ $site_name: Not a git repository${NC}"
+            ((issues++))
+        else
+            if [[ "$verbose" == "true" ]]; then
+                echo -e "${GREEN}✓ $site_name: Git repository${NC}"
+            fi
+            
+            # Check git status
+            cd "$fs_base"
+            if ! git status &>/dev/null; then
+                echo -e "${RED}✗ $site_name: Git repository corrupted${NC}"
+                ((issues++))
+            fi
+        fi
+        
+        # Check config file
+        local config_file="$fs_base$BL_CONFIG_FILE_PATH"
+        if [[ ! -f "$config_file" ]]; then
+            echo -e "${YELLOW}⚠ $site_name: Config file missing${NC}"
+            ((issues++))
+            if [[ "$fix" == "true" ]]; then
+                warning_msg "  Cannot auto-create config file (site-specific)"
+            fi
+        else
+            if [[ "$verbose" == "true" ]]; then
+                echo -e "${GREEN}✓ $site_name: Config file exists${NC}"
+            fi
+            
+            # Check config syntax
+            if ! php -l "$config_file" &>/dev/null; then
+                echo -e "${RED}✗ $site_name: Config file has syntax errors${NC}"
+                ((issues++))
+            fi
+        fi
+        
+        # Check permissions
+        if [[ ! -w "$fs_base" ]]; then
+            echo -e "${YELLOW}⚠ $site_name: Directory not writable${NC}"
+            ((issues++))
+            if [[ "$fix" == "true" ]]; then
+                info_msg "  Fixing permissions..."
+                sudo chown -R "$BL_USER:$BL_USER" "$fs_base"
+            fi
+        fi
+    fi
+    
+    return $issues
+}
+
+main() {
+    check_user
+    init_data_file
+    
+    local verbose="false"
+    local fix="false"
+    
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --verbose)
+                verbose="true"
+                shift
+                ;;
+            --fix)
+                fix="true"
+                shift
+                ;;
+            *)
+                usage
+                ;;
+        esac
+    done
+    
+    local total_issues=0
+    local total_sites=0
+    
+    info_msg "=== BL Tools Health Check ==="
+    echo
+    
+    # Check data file
+    if [[ ! -f "$BL_DATA_FILE" ]]; then
+        error_msg "Data file missing: $BL_DATA_FILE"
+        exit 1
+    fi
+    
+    # Process all active sites
+    get_active_sites | while IFS='|' read -r name type status fs_base url_base notes created updated inactivated; do
+        if [[ -n "$name" ]]; then
+            ((total_sites++))
+            check_site_health "$name" "$fs_base" "$url_base" "$verbose" "$fix"
+            site_issues=$?
+            ((total_issues += site_issues))
+        fi
+    done
+    
+    echo
+    info_msg "=== Health Check Summary ==="
+    echo "Total sites checked: $total_sites"
+    if [[ $total_issues -eq 0 ]]; then
+        success_msg "All sites healthy! ✓"
+    else
+        warning_msg "Found $total_issues issues across all sites"
+        if [[ "$fix" != "true" ]]; then
+            info_msg "Run with --fix to attempt automatic repairs"
+        fi
+    fi
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
+

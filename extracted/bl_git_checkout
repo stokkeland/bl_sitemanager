@@ -1,0 +1,126 @@
+#!/bin/bash
+# bl_git_checkout - Checkout a specific branch on site(s)
+
+source "$(dirname "$0")/bl_common.sh"
+
+usage() {
+    echo "Usage: $0 <branch> <site_name|--all>"
+    echo "  branch    - Git branch to checkout"
+    echo "  site_name - Checkout branch on specific site"
+    echo "  --all     - Checkout branch on all sites"
+    echo ""
+    echo "Example: $0 develop mysite"
+    echo "Example: $0 main --all"
+    exit 1
+}
+
+check_git_checkout() {
+    local branch="$1"
+    local site_name="$2"
+    local fs_base="$3"
+    
+    info_msg "=== Git Checkout '$branch' for $site_name ==="
+    
+    if [[ ! -d "$fs_base" ]]; then
+        error_msg "Directory does not exist: $fs_base"
+        return 1
+    fi
+    
+    if [[ ! -d "$fs_base/.git" ]]; then
+        warning_msg "Not a git repository: $fs_base"
+        return 1
+    fi
+    
+    cd "$fs_base" || return 1
+    
+    # Check if working directory is clean
+    if ! git diff-index --quiet HEAD -- 2>/dev/null; then
+        warning_msg "Working directory has uncommitted changes for $site_name"
+        echo "  Use 'git stash' or commit changes before switching branches"
+        return 1
+    fi
+    
+    # Fetch latest branch information
+    echo "Fetching latest branch information..."
+    git fetch --quiet
+    
+    # Check if branch exists (locally or remotely)
+    if git show-ref --verify --quiet "refs/heads/$branch"; then
+        # Local branch exists
+        echo "Checking out local branch: $branch"
+        git checkout "$branch"
+    elif git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+        # Remote branch exists
+        echo "Checking out remote branch: origin/$branch"
+        git checkout -b "$branch" "origin/$branch" 2>/dev/null || git checkout "$branch"
+    else
+        error_msg "Branch '$branch' not found locally or on remote"
+        return 1
+    fi
+    
+    # Show current branch status
+    echo "Current branch: $(git branch --show-current)"
+    echo
+}
+
+main() {
+    check_user
+    init_data_file
+    
+    if [[ $# -ne 2 ]] || [[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]; then
+        usage
+    fi
+    
+    local branch="$1"
+    local target="$2"
+    
+    if [[ "$target" == "--all" ]]; then
+        # Process all active sites
+        local success_count=0
+        local fail_count=0
+        local temp_result=$(mktemp)
+        
+        while IFS='|' read -r name type status fs_base url_base notes created updated inactivated; do
+            if [[ -n "$name" ]]; then
+                if check_git_checkout "$branch" "$name" "$fs_base"; then
+                    echo "success" >> "$temp_result"
+                else
+                    echo "fail" >> "$temp_result"
+                fi
+            fi
+        done < <(get_active_sites)
+        
+        # Count results
+        success_count=$(grep -c "success" "$temp_result" 2>/dev/null || echo 0)
+        fail_count=$(grep -c "fail" "$temp_result" 2>/dev/null || echo 0)
+        rm -f "$temp_result"
+        
+        echo
+        info_msg "=== Checkout Summary ==="
+        if [[ $fail_count -eq 0 ]]; then
+            success_msg "Successfully checked out '$branch' on all sites"
+        else
+            warning_msg "Checked out '$branch' on $success_count sites, failed on $fail_count sites"
+        fi
+    else
+        # Process specific site
+        local site_name="$target"
+        if ! site_exists "$site_name"; then
+            error_msg "Site '$site_name' does not exist"
+            exit 1
+        fi
+        
+        local fs_base=$(get_site_fs_base "$site_name")
+        if check_git_checkout "$branch" "$site_name" "$fs_base"; then
+            success_msg "Successfully checked out '$branch' on $site_name"
+        else
+            error_msg "Failed to checkout '$branch' on $site_name"
+            exit 1
+        fi
+    fi
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
+

@@ -1,0 +1,85 @@
+#!/bin/bash
+# bl_db_update - Update an existing site entry
+
+source "$(dirname "$0")/bl_common.sh"
+
+usage() {
+    echo "Usage: $0 <short_name> [--type <type>] [--status <status>] [--fs-base-path <path>] [--url-base <url>] [--notes <notes>]"
+    echo "Types: ${VALID_TYPES[*]}"
+    echo "Statuses: ${VALID_STATUSES[*]}"
+    exit 1
+}
+
+main() {
+    check_user
+    init_data_file
+    
+    if [[ $# -lt 2 ]]; then
+        usage
+    fi
+    
+    local short_name="$1"
+    shift
+    
+    if ! site_exists "$short_name"; then
+        error_msg "Site '$short_name' does not exist"
+        exit 1
+    fi
+    
+    # Get current data
+    local current_data=$(get_site_data "$short_name")
+    IFS='|' read -r c_name c_type c_status c_fs_base c_url_base c_notes c_created c_updated c_inactivated <<< "$current_data"
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --type)
+                if ! validate_type "$2"; then
+                    error_msg "Invalid type: $2"
+                    exit 1
+                fi
+                c_type="$2"
+                shift 2
+                ;;
+            --status)
+                if ! validate_status "$2"; then
+                    error_msg "Invalid status: $2"
+                    exit 1
+                fi
+                c_status="$2"
+                shift 2
+                ;;
+            --fs-base-path)
+                c_fs_base="$2"
+                shift 2
+                ;;
+            --url-base)
+                c_url_base="$2"
+                shift 2
+                ;;
+            --notes)
+                c_notes="$2"
+                shift 2
+                ;;
+            *)
+                error_msg "Unknown option: $1"
+                usage
+                ;;
+        esac
+    done
+    
+    # Update timestamp
+    local timestamp=$(get_timestamp)
+    
+    # Remove old entry and add updated one (preserve inactivated status)
+    grep -v "^${short_name}|" "$BL_DATA_FILE" > "${BL_DATA_FILE}.tmp"
+    echo "${c_name}|${c_type}|${c_status}|${c_fs_base}|${c_url_base}|${c_notes}|${c_created}|${timestamp}|${c_inactivated}" >> "${BL_DATA_FILE}.tmp"
+    mv "${BL_DATA_FILE}.tmp" "$BL_DATA_FILE"
+    
+    success_msg "Site '$short_name' updated successfully"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
+
